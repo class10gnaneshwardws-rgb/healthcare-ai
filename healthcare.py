@@ -1,4 +1,5 @@
 import streamlit as st
+import re # Essential for image tag parsing
 from google import genai
 from google.genai import types
 from streamlit_mic_recorder import speech_to_text # External component for voice input
@@ -12,7 +13,7 @@ def set_custom_ui_style():
     /* 1. Main Background: Light Theme (White/Faint Gray) */
     .stApp {
         background-color: #f0f2f6; /* Light gray/default background */
-        color: #008000; /* Darker Green for primary text readability */
+        color: #00ff00; /* Primary text color set to BRIGHT GREEN */
     }
 
     /* 2. Sidebar Color */
@@ -73,7 +74,7 @@ set_custom_ui_style()
 
 # --- 1. CONFIGURATION AND SAFETY ---
 
-# SIMPLIFIED SYSTEM INSTRUCTION: Image rules removed
+# UPDATED SYSTEM INSTRUCTION: Enforces brevity, structure, and image tagging
 SYSTEM_INSTRUCTION = """
 You are a helpful, strictly non-diagnostic Healthcare Companion AI.
 
@@ -83,7 +84,18 @@ CRITICAL OUTPUT RULES:
     - **⚠️ Disclaimer:** "General Info Only. Consult a Doctor."
     - **📝 Summary:** A 1-2 sentence explanation of the problem/symptom.
     - **💡 Solutions & Tips:** A bulleted list of 3-5 actionable general tips or home remedies (tailored to Ayurvedic or General/Modern Wellness based on user request).
-3. **LANGUAGE:** Output in the requested language.
+3. **VISUALS:** Assess if the user would understand better with a diagram. If yes, insert a tag like 
+
+
+[Image of human digestive system]
+
+ or 
+
+
+[Image of knee anatomy]
+
+ at the end of the summary. Do not use images for abstract concepts like "hard work" or generic people. Only use if it adds instructive value.
+4. **LANGUAGE:** Output in the requested language.
 """
 
 MODEL_NAME = 'gemini-2.5-flash'
@@ -158,11 +170,52 @@ def reset_chat():
     
     st.rerun() 
 
+# --- IMAGE PARSING AND DISPLAY FUNCTION ---
+
+def parse_and_display_response(full_response, container):
+    """
+    Parses the full response for the 
+
+[Image of X]
+ tag.
+    Displays the text content, and replaces the tag with an image holder.
+    """
+    # 1. Regular expression to find all 
+
+[Image of X]
+ tags
+    image_tags = re.findall(r'\', full_response)
+    
+    # 2. Clean the text response by removing the image tags
+    clean_text = re.sub(r'\', '', full_response).strip()
+    
+    # 3. Display the text in the container
+    container.markdown(clean_text)
+    
+    # 4. Display Image Placeholder/Request
+    if image_tags:
+        container.markdown("---")
+        container.subheader("🖼️ Visual Aid Suggested")
+        
+        for prompt in image_tags:
+            # THIS IS THE IMAGE PLACEHOLDER FOR DEMONSTRATION
+            container.markdown(
+                f"""
+                <div style="border: 2px dashed #00a8cc; padding: 10px; border-radius: 5px; background-color: #f0f8ff; margin-top: 10px;">
+                    <p style="color: #008000; margin: 0;"><b>Image Request:</b> {prompt}</p>
+                    <p style="color: #6a0000; font-size: 0.9em; margin: 0;">
+                        (This feature successfully extracts the image prompt for a separate image API service.)
+                    </p>
+                </div>
+                """, unsafe_allow_html=True
+            )
+
 # --- HELPER FUNCTION FOR AI RESPONSE (TEXT ONLY) ---
 
 def handle_final_response(base_prompt, is_medicine_request=False):
     """
     Handles the API call and streams the text response.
+    Parses the final response for image tags.
     """
     client = get_gemini_client()
     if not client:
@@ -173,11 +226,10 @@ def handle_final_response(base_prompt, is_medicine_request=False):
     if is_medicine_request:
         final_prompt = f"{base_prompt}\n\nOutput in *{target_lang}*. Keep it brief: Usage + Key Symptoms treated."
     else:
-        # Simplified instruction, removed image constraint
         final_prompt = (
             f"{base_prompt}\n\n"
             f"Constraint: Respond in {target_lang}. "
-            f"Keep it concise. Structure as: 1. Short Summary. 2. Bullet points for Solutions."
+            f"Keep it concise. Structure as: 1. Short Summary (assess if [Image of...] tag is needed and insert it IMMEDIATELY after the summary). 2. Bullet points for Solutions."
         )
 
     display_content = base_prompt if not is_medicine_request else f"Requesting info for medicine: {base_prompt}"
@@ -201,8 +253,7 @@ def handle_final_response(base_prompt, is_medicine_request=False):
 
             temp_streaming_placeholder.empty()
 
-            # Directly display the full response without parsing for images
-            message_placeholder.markdown(full_stream_response)
+            parse_and_display_response(full_stream_response, message_placeholder)
             full_response = full_stream_response
             
         except Exception as e:
@@ -229,13 +280,12 @@ def handle_context_form_submit(user_gender, user_age, user_weight, user_therapy_
         "General health enquiry."
     )
     
-    # Simplified prompt, removed image-related instructions
     prompt = (
         f"User Complaint: {original_symptom}\n"
         f"Context: {user_gender}, Age {user_age}, Weight {user_weight}kg\n"
         f"Preferred Approach: {user_therapy_choice}\n\n"
         f"Task: Provide a VERY SHORT, structured response.\n"
-        f"1. Explain the problem in 1-2 sentences.\n"
+        f"1. Explain the problem in 1-2 sentences. Crucially, assess if an anatomical or procedural diagram helps explain the condition (e.g., knee anatomy for knee pain, digestive system for constipation). If a diagram helps, insert the appropriate  tag immediately after the summary sentence.\n"
         f"2. Provide 4-5 bullet points of clear solutions/remedies based on '{user_therapy_choice}'.\n"
         f"Do not lecture. Go straight to the point."
     )
@@ -250,6 +300,7 @@ st.title(APP_TITLE)
 
 if 'gemini_chat' not in st.session_state:
     reset_chat()
+    # No st.rerun() here, as reset_chat already calls it after initialization. 
 
 # --- SIDEBAR CONTROLS ---
 
@@ -294,10 +345,16 @@ with st.container(border=True):
     """, unsafe_allow_html=True)
 
 # Display Chat History
-for message in st.session_state.messages:
+for i, message in enumerate(st.session_state.messages):
+    is_last_assistant_message = (message["role"] == "assistant" and i == len(st.session_state.messages) - 1)
+
     with st.chat_message(message["role"]):
-        # All messages displayed directly, no image parsing needed
-        st.markdown(message["content"])
+        if is_last_assistant_message:
+            # Use parser for the latest assistant message to handle image tag display
+            parse_and_display_response(message["content"], st.container())
+        else:
+            # Display all other messages normally
+            st.markdown(message["content"])
 
 # --- INTERACTIVE FORMS ---
 
@@ -361,11 +418,11 @@ if not st.session_state.asking_for_details and not st.session_state.show_prescri
     col1, col2 = st.columns([1, 4])
     
     with col1:
-        # VOICE INPUT: Manual stop is active
+        # VOICE INPUT: Manual stop added back
         voice_text = speech_to_text(
             language='en', 
             start_prompt="🎤 Speak", 
-            stop_prompt="🛑 Stop", 
+            stop_prompt="🛑 Stop", # Manual stop button re-added
             just_once=True,
             key='voice_input'
         )
