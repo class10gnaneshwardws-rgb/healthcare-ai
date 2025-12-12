@@ -3,7 +3,7 @@ from google import genai
 from google.genai import types
 from streamlit_mic_recorder import speech_to_text # External component for voice input
 import json 
-import re # Re-added for the future use of image tags, ensuring the stable code is used.
+import re 
 
 # --- CUSTOM UI STYLING FUNCTION (LIGHT THEME WITH GREEN TEXT) ---
 
@@ -91,7 +91,7 @@ MODEL_NAME = 'gemini-2.5-flash'
 APP_TITLE = "🩺 HealthCare Companion (Dr.Drug Lord)"
 
 # --- CONFIGURATION CONSTANTS ---
-TRIGGER_KEYWORDS = ["symptom", "constipation", "pain", "fever", "headache", "cold", "flu", "cough", "heart", "stomach", "skin"]
+# We keep this for future complex logic but will check ALL inputs now.
 AGE_RANGES = ["0-12", "13-17", "18-45", "46-65", "65+"]
 GENDER_OPTIONS = ["Male", "Female", "Prefer Not to Say"]
 THERAPY_OPTIONS = ["Ayurvedic Suggestion", "General/Modern Wellness"] 
@@ -150,21 +150,11 @@ def reset_chat():
     
     st.session_state['gemini_chat'] = client.chats.create(model=MODEL_NAME, config=config)
     
-    # Initialize the chat with the symptom query and the form prompt
-    st.session_state.messages = [
-        {"role": "assistant", "content": "Welcome!⛑ I am your Dr Drug Lord. Ask me about your symptoms."},
-        {"role": "user", "content": "i have fever"},
-        {"role": "assistant", "content": "*Context Required:* Please fill the form above so I can give you a specific solution."}
-    ]
+    st.session_state.messages = [{"role": "assistant", "content": 
+        "Welcome!⛑ I am your Dr Drug Lord. Ask me about your symptoms."}]
     
-    # Set state to show the context form immediately
-    st.session_state.asking_for_details = True 
-    st.session_state.user_details = {
-        'gender': 'Male',
-        'age': '13-17',
-        'weight': 70,
-        'therapy': 'General/Modern Wellness'
-    } 
+    st.session_state.asking_for_details = False 
+    st.session_state.user_details = {} 
     st.session_state.show_prescription_form = False
     st.session_state.user_choice_therapy = THERAPY_OPTIONS[1] 
     
@@ -193,7 +183,7 @@ def handle_final_response(base_prompt, is_medicine_request=False):
 
     display_content = base_prompt if not is_medicine_request else f"Requesting info for medicine: {base_prompt}"
     
-    # Check if the last message was a user message from the form submit before appending a new one
+    # Append user message only if it hasn't been appended by the form submit handler
     if not (st.session_state.messages and st.session_state.messages[-1]["content"].startswith("Context provided:")):
         st.session_state.messages.append({"role": "user", "content": display_content})
     
@@ -228,7 +218,7 @@ def handle_final_response(base_prompt, is_medicine_request=False):
         "content": full_response
     })
 
-# --- HELPER FOR CONTEXT FORM SUBMISSION (FIXED TO USE GEMINI API) ---
+# --- HELPER FOR CONTEXT FORM SUBMISSION ---
 
 def handle_context_form_submit(user_gender, user_age, user_weight, user_therapy_choice):
     # Store the details from the form
@@ -238,12 +228,14 @@ def handle_context_form_submit(user_gender, user_age, user_weight, user_therapy_
     st.session_state.user_details['therapy'] = user_therapy_choice
     st.session_state.asking_for_details = False 
 
-    # Find the original symptom from the conversation history
-    original_symptom = next(
-        (msg['content'] for msg in reversed(st.session_state.messages) 
-         if msg['role'] == 'user' and not msg['content'].startswith('Requesting info')),
-        "General health enquiry."
-    )
+    # Find the original symptom/complaint from the conversation history
+    # Look for the last user message that is NOT a form submission confirmation
+    original_symptom = "General health enquiry."
+    for msg in reversed(st.session_state.messages):
+        if msg['role'] == 'user' and not msg['content'].startswith('Context provided:'):
+             original_symptom = msg['content']
+             break
+
     
     # Construct the comprehensive prompt for the Gemini API
     prompt = (
@@ -346,7 +338,7 @@ if st.session_state.show_prescription_form:
 
 # 2. CONTEXT DETAILS FORM (Includes Gender, Age, Weight, and Therapy Choice)
 if st.session_state.asking_for_details:
-    # Set form defaults to reflect the provided context
+    # Set form defaults based on saved state or sensible defaults
     initial_gender = st.session_state.user_details.get('gender', GENDER_OPTIONS[0])
     initial_age = st.session_state.user_details.get('age', AGE_RANGES[2])
     initial_weight = st.session_state.user_details.get('weight', 70)
@@ -403,19 +395,18 @@ if not st.session_state.asking_for_details and not st.session_state.show_prescri
         )
     
     with col2:
-        text_input = st.chat_input("Ask about symptoms...")
+        # MODIFIED: Input hint reflects the ability to take any symptom
+        text_input = st.chat_input("Ask about any symptom or health concern...")
 
     user_input = voice_text or text_input
 
     if user_input:
-        if any(k in user_input.lower() for k in TRIGGER_KEYWORDS):
-            st.session_state.messages.append({"role": "user", "content": user_input})
-            st.session_state.asking_for_details = True
-            with st.chat_message("assistant"):
-                msg = "*Context Required:* Please fill the form above so I can give you a specific solution."
-                st.session_state.messages.append({"role": "assistant", "content": msg})
-                st.markdown(msg)
-            st.rerun()
-        else:
-            handle_final_response(user_input)
-            st.rerun()
+        # MODIFIED: Trigger the context form for ANY user input
+        st.session_state.messages.append({"role": "user", "content": user_input})
+        st.session_state.asking_for_details = True
+        
+        with st.chat_message("assistant"):
+            msg = "*Context Required:* Please fill the form above so I can give you a specific solution."
+            st.session_state.messages.append({"role": "assistant", "content": msg})
+            st.markdown(msg)
+        st.rerun()
