@@ -78,12 +78,12 @@ SYSTEM_INSTRUCTION = """
 You are a helpful, strictly non-diagnostic Healthcare Companion AI.
 
 CRITICAL OUTPUT RULES:
-1. *BE CONCISE:* Do not write long paragraphs. Keep responses short and easy to read.
-2. *STRUCTURE:* Your response must follow this exact format:
-    - *⚠ Disclaimer:* "General Info Only. Consult a Doctor."
-    - *📝 Summary:* A 1-2 sentence explanation of the problem/symptom.
-    - *💡 Solutions & Tips:* A bulleted list of 3-5 actionable general tips or home remedies (tailored to Ayurvedic or General/Modern Wellness based on user request).
-3. *LANGUAGE:* Output in the requested language.
+1. **BE CONCISE:** Do not write long paragraphs. Keep responses short and easy to read.
+2. **STRUCTURE:** Your response must follow this exact format:
+    - **⚠️ Disclaimer:** "General Info Only. Consult a Doctor."
+    - **📝 Summary:** A 1-2 sentence explanation of the problem/symptom.
+    - **💡 Solutions & Tips:** A bulleted list of 3-5 actionable general tips or home remedies (tailored to Ayurvedic or General/Modern Wellness based on user request).
+3. **LANGUAGE:** Output in the requested language.
 """
 
 MODEL_NAME = 'gemini-2.5-flash'
@@ -171,7 +171,7 @@ def handle_final_response(base_prompt, is_medicine_request=False):
     target_lang = st.session_state.current_language
     
     if is_medicine_request:
-        final_prompt = f"{base_prompt}\n\nOutput in {target_lang}. Keep it brief: Usage + Key Symptoms treated."
+        final_prompt = f"{base_prompt}\n\nOutput in *{target_lang}*. Keep it brief: Usage + Key Symptoms treated."
     else:
         # Simplified instruction, removed image constraint
         final_prompt = (
@@ -380,7 +380,7 @@ if not st.session_state.asking_for_details and not st.session_state.show_prescri
             st.session_state.messages.append({"role": "user", "content": user_input})
             st.session_state.asking_for_details = True
             with st.chat_message("assistant"):
-                msg = "Context Required: Please fill the form above so I can give you a specific solution."
+                msg = "*Context Required:* Please fill the form above so I can give you a specific solution."
                 st.session_state.messages.append({"role": "assistant", "content": msg})
                 st.markdown(msg)
             st.rerun()
